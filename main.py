@@ -28,7 +28,7 @@ def verify_bearer_token(credentials: HTTPAuthorizationCredentials = Depends(secu
     return token
 
 @app.get("/")
-def read_root():
+def read_root(token: str = Depends(verify_bearer_token)):
     return {"message": "Hello World"}
 
 @app.get("/items/{item_id}")
