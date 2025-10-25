@@ -17,7 +17,7 @@ load_dotenv()
 class ProcessVideoRequest(BaseModel):
     video_uri: str
     ffmpeg_command: str
-    bucket_name: str
+    bucket_name: str = None  # Optional, will use GCP_BUCKET_NAME if not provided
     token: str
     output_extension: str = "mp4"
     return_raw_output: bool = False
@@ -188,13 +188,24 @@ def process_video(request: ProcessVideoRequest, token: str = Depends(verify_bear
     print(f"[API] FFmpeg command: {request.ffmpeg_command}")
     print(f"[API] Output extension: {request.output_extension}, Return raw output: {request.return_raw_output}")
     
+    # Use default bucket if none provided
+    bucket_name = request.bucket_name or os.getenv("GCP_BUCKET_NAME")
+    if not bucket_name:
+        print(f"[API] Error: No bucket name provided and GCP_BUCKET_NAME not set")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="bucket_name is required or set GCP_BUCKET_NAME environment variable"
+        )
+    
+    print(f"[API] Using bucket: {bucket_name}")
+    
     try:
         # Process video
         print(f"[API] Calling execute_ffmpeg_on_gcs_video function...")
         result = execute_ffmpeg_on_gcs_video(
             video_uri=request.video_uri,
             ffmpeg_command=request.ffmpeg_command,
-            bucket_name=request.bucket_name,
+            bucket_name=bucket_name,
             token=request.token,
             output_extension=request.output_extension,
             return_raw_output=request.return_raw_output

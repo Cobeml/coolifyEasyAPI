@@ -23,7 +23,7 @@ def make_sample_request():
     payload = {
         "video_uri": "gs://ultimateagentbucket/sample_0.mp4",
         "ffmpeg_command": "ffmpeg -i INPUT_FILE -vf scale=720:480 -c:a copy OUTPUT_FILE",
-        "bucket_name": "ultimateagentbucket", 
+        # "bucket_name": "ultimateagentbucket",  # Optional - will use GCP_BUCKET_NAME if not provided
         "token": gcp_token,  # Use the authenticated GCP token
         "output_extension": "mp4",
         "return_raw_output": True
