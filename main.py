@@ -118,6 +118,10 @@ def execute_ffmpeg_on_gcs_video(video_uri: str, ffmpeg_command: str, bucket_name
             # Add output file at the end
             command_parts.append(temp_output.name)
         
+        # Always add -y flag to overwrite existing files without prompting
+        if "-y" not in command_parts:
+            command_parts.insert(1, "-y")
+        
         final_command = " ".join(command_parts)
         print(f"[FFMPEG] Executing command: {final_command}")
         
