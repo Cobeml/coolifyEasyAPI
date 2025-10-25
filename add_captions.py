@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile
 import json
+import requests
 from uuid import uuid4
 from google.cloud import speech, storage
 from google.oauth2 import service_account
@@ -176,6 +177,104 @@ def format_timestamps_to_srt(response, srt_path=None):
     return srt_path
 
 
+def translate_text(text: str, target_lang: str) -> str:
+    """
+    Translates text using DeepL API.
+    """
+    deepl_auth_key = os.getenv("DEEPL_AUTH_KEY")
+    if not deepl_auth_key:
+        raise Exception("DEEPL_AUTH_KEY environment variable not set")
+    
+    url = "https://api.deepl.com/v2/translate"
+    headers = {
+        "Authorization": f"DeepL-Auth-Key {deepl_auth_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "text": [text],
+        "target_lang": target_lang.upper()
+    }
+    
+    print(f"Translating text to {target_lang}...")
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+        translated_text = result["translations"][0]["text"]
+        print(f"Translation completed.")
+        return translated_text
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Translation failed: {e}")
+    except (KeyError, IndexError) as e:
+        raise Exception(f"Invalid translation response: {e}")
+
+
+def format_translated_timestamps_to_srt(response, translated_text: str, srt_path=None, chunk_size: int = 3):
+    """
+    Creates SRT captions using translated text split into chunks with original timing.
+    """
+    if srt_path is None:
+        srt_path = tempfile.NamedTemporaryFile(suffix=".srt", delete=False).name
+    
+    print(f"Formatting translated text into {chunk_size}-word chunks for SRT...")
+    
+    def format_time(seconds):
+        """Converts seconds to SRT time format HH:MM:SS,ms"""
+        delta = int(seconds * 1000)
+        hours, delta = divmod(delta, 3600000)
+        minutes, delta = divmod(delta, 60000)
+        seconds, milliseconds = divmod(delta, 1000)
+        return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+    
+    # Extract all word timings from the original response
+    word_timings = []
+    for result in response.results:
+        for word_info in result.alternatives[0].words:
+            word_timings.append({
+                'start': word_info.start_time.total_seconds(),
+                'end': word_info.end_time.total_seconds()
+            })
+    
+    if not word_timings:
+        raise Exception("No word timings found in speech recognition response")
+    
+    # Split translated text into chunks
+    translated_words = translated_text.split()
+    chunks = [' '.join(translated_words[i:i+chunk_size]) for i in range(0, len(translated_words), chunk_size)]
+    
+    # Calculate timing for each chunk
+    total_original_words = len(word_timings)
+    chunk_duration = len(word_timings) / len(chunks) if chunks else 1
+    
+    with open(srt_path, "w", encoding='utf-8') as f:
+        for i, chunk in enumerate(chunks):
+            # Calculate start and end times for this chunk
+            start_word_idx = int(i * chunk_duration)
+            end_word_idx = min(int((i + 1) * chunk_duration) - 1, total_original_words - 1)
+            
+            # Ensure indices are within bounds
+            start_word_idx = max(0, min(start_word_idx, total_original_words - 1))
+            end_word_idx = max(start_word_idx, min(end_word_idx, total_original_words - 1))
+            
+            start_time = word_timings[start_word_idx]['start']
+            end_time = word_timings[end_word_idx]['end']
+            
+            # Ensure end time is after start time
+            if end_time <= start_time:
+                end_time = start_time + 1.0  # Add 1 second minimum duration
+            
+            start_time_str = format_time(start_time)
+            end_time_str = format_time(end_time)
+            
+            f.write(f"{i + 1}\n")
+            f.write(f"{start_time_str} --> {end_time_str}\n")
+            f.write(f"{chunk}\n\n")
+    
+    print(f"Translated SRT file saved to '{srt_path}' with {len(chunks)} chunks.")
+    return srt_path
+
+
 def add_captions_to_video(video_path, srt_path, output_path=None):
     """
     Burns the SRT captions into the video file using FFmpeg.
@@ -206,14 +305,17 @@ def add_captions_to_video(video_path, srt_path, output_path=None):
         raise Exception("ffmpeg command not found. Is FFmpeg installed and in your PATH?")
 
 
-def add_captions_to_video_from_uri(video_uri: str, bucket_name: str, token: str, output_extension: str = "mp4") -> dict:
+def add_captions_to_video_from_uri(video_uri: str, bucket_name: str, token: str, output_extension: str = "mp4", target_lang: str = None) -> dict:
     """
     Main function to add captions to a video from GCS URI.
     Downloads video, extracts audio, gets transcription, creates captions, and uploads result.
+    If target_lang is provided, translates the captions to that language.
     """
     print(f"[CAPTIONS] Starting caption addition pipeline")
     print(f"[CAPTIONS] Input video URI: {video_uri}")
     print(f"[CAPTIONS] Target bucket: {bucket_name}")
+    if target_lang:
+        print(f"[CAPTIONS] Target language: {target_lang}")
     
     bucket_manager = GCSStorageManagerJWT(bucket_name, token)
     
@@ -240,15 +342,28 @@ def add_captions_to_video_from_uri(video_uri: str, bucket_name: str, token: str,
         stt_response = get_word_timestamps(temp_audio, speech_client)
         
         # Format timestamps to SRT
-        print(f"[CAPTIONS] Formatting timestamps to SRT...")
-        temp_srt = format_timestamps_to_srt(stt_response)
+        if target_lang:
+            # Extract full transcript for translation
+            full_transcript = ""
+            for result in stt_response.results:
+                full_transcript += result.alternatives[0].transcript + " "
+            
+            print(f"[CAPTIONS] Translating transcript to {target_lang}...")
+            translated_text = translate_text(full_transcript.strip(), target_lang)
+            
+            print(f"[CAPTIONS] Formatting translated text into 3-word chunks...")
+            temp_srt = format_translated_timestamps_to_srt(stt_response, translated_text)
+        else:
+            print(f"[CAPTIONS] Formatting timestamps to SRT...")
+            temp_srt = format_timestamps_to_srt(stt_response)
         
         # Add captions to video
         print(f"[CAPTIONS] Adding captions to video...")
         temp_output = add_captions_to_video(temp_video.name, temp_srt)
         
         # Upload processed video to GCS
-        output_path = f"captioned_videos/{uuid4()}.{output_extension}"
+        lang_suffix = f"_{target_lang}" if target_lang else ""
+        output_path = f"captioned_videos/{uuid4()}{lang_suffix}.{output_extension}"
         print(f"[CAPTIONS] Uploading captioned video to GCS path: {output_path}")
         result_uri = bucket_manager.upload(temp_output, output_path)
         print(f"[CAPTIONS] Upload completed. Result URI: {result_uri}")

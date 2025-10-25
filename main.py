@@ -27,6 +27,7 @@ class AddCaptionsRequest(BaseModel):
     video_uri: str
     bucket_name: str = None  # Optional, will use GCP_BUCKET_NAME if not provided
     output_extension: str = "mp4"
+    target_lang: str = None  # Optional, language code for translation (e.g., "ES", "FR", "DE")
 
 class GCSStorageManagerJWT:
     def __init__(self, bucket_name: str, token: str):
@@ -322,19 +323,27 @@ def add_captions(request: AddCaptionsRequest, token: str = Depends(verify_bearer
     try:
         # Add captions to video
         print(f"[API] Calling add_captions_to_video_from_uri function...")
+        if request.target_lang:
+            print(f"[API] Translation requested to: {request.target_lang}")
+        
         result = add_captions_to_video_from_uri(
             video_uri=request.video_uri,
             bucket_name=bucket_name,
             token=gcp_token,
-            output_extension=request.output_extension
+            output_extension=request.output_extension,
+            target_lang=request.target_lang
         )
         
         print(f"[API] Caption addition completed successfully. Output URI: {result['result_uri']}")
         
+        message = 'Captions added successfully'
+        if request.target_lang:
+            message += f' (translated to {request.target_lang})'
+        
         response = {
             'success': True,
             'output_uri': result["result_uri"],
-            'message': 'Captions added successfully'
+            'message': message
         }
         
         return response
