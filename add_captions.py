@@ -90,6 +90,7 @@ def get_speech_client():
 def extract_audio(video_path, audio_path=None):
     """
     Extracts the audio from a video file using FFmpeg.
+    Converts to mono (single channel) for Speech-to-Text compatibility.
     """
     if audio_path is None:
         audio_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
@@ -98,6 +99,8 @@ def extract_audio(video_path, audio_path=None):
     command = [
         "ffmpeg",
         "-i", video_path,
+        "-ac", "1",           # Convert to mono (single channel)
+        "-ar", "16000",       # Set sample rate to 16kHz (recommended for Speech-to-Text)
         "-q:a", "0",          # Preserve audio quality
         "-map", "a",          # Select only the audio stream
         "-y",                 # Overwrite output file if it exists
@@ -105,7 +108,7 @@ def extract_audio(video_path, audio_path=None):
     ]
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True)
-        print(f"Audio successfully extracted to '{audio_path}'.")
+        print(f"Audio successfully extracted to '{audio_path}' (mono, 16kHz).")
         return audio_path
     except subprocess.CalledProcessError as e:
         print("Error during FFmpeg audio extraction:")
