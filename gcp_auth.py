@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+
+
 def base64url_encode(data: bytes) -> str:
     """Base64url encoding helper function."""
     return base64.b64encode(data).decode('utf-8').rstrip('=').replace('+', '-').replace('/', '_')
@@ -167,3 +169,4 @@ def authenticate_gcp() -> str:
     except Exception as e:
         print(f"[AUTH] Authentication failed: {str(e)}")
         raise
+

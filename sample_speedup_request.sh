@@ -11,7 +11,6 @@ curl -X POST "http://localhost:8000/process-video" \
   -d '{
     "video_uri": "gs://ultimateagentbucket/sample_0.mp4",
     "ffmpeg_command": "ffmpeg -i INPUT_FILE -filter:v \"setpts=0.5*PTS\" -filter:a \"atempo=2.0\" OUTPUT_FILE",
-    "token": "YOUR_GCS_JWT_TOKEN",
     "output_extension": "mp4",
     "return_raw_output": true
   }'

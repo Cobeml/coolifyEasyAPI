@@ -10,6 +10,7 @@ from google.cloud import storage
 from google.oauth2.credentials import Credentials
 from dotenv import load_dotenv
 import base64
+from gcp_auth import authenticate_gcp
 
 load_dotenv()
 
@@ -18,7 +19,6 @@ class ProcessVideoRequest(BaseModel):
     video_uri: str
     ffmpeg_command: str
     bucket_name: str = None  # Optional, will use GCP_BUCKET_NAME if not provided
-    token: str
     output_extension: str = "mp4"
     return_raw_output: bool = False
 
@@ -206,6 +206,21 @@ def process_video(request: ProcessVideoRequest, token: str = Depends(verify_bear
     
     print(f"[API] Using bucket: {bucket_name}")
     
+    # Generate GCP access token internally
+    try:
+        print(f"[API] Generating GCP access token...")
+        gcp_token = authenticate_gcp()
+        print(f"[API] GCP token generated successfully")
+    except Exception as e:
+        print(f"[API] Failed to generate GCP token: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                'error': 'GCP authentication failed',
+                'details': str(e)
+            }
+        )
+    
     try:
         # Process video
         print(f"[API] Calling execute_ffmpeg_on_gcs_video function...")
@@ -213,7 +228,7 @@ def process_video(request: ProcessVideoRequest, token: str = Depends(verify_bear
             video_uri=request.video_uri,
             ffmpeg_command=request.ffmpeg_command,
             bucket_name=bucket_name,
-            token=request.token,
+            token=gcp_token,  # Use the internally generated token
             output_extension=request.output_extension,
             return_raw_output=request.return_raw_output
         )
