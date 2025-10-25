@@ -1,2 +1,6 @@
+[phases.setup]
+nixPkgs = ["python312", "ffmpeg-full"]
+
+
 [start]
 cmd = "fastapi run main.py --port 3000"
