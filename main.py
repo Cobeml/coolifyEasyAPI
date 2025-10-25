@@ -11,6 +11,7 @@ from google.oauth2.credentials import Credentials
 from dotenv import load_dotenv
 import base64
 from gcp_auth import authenticate_gcp
+from add_captions import add_captions_to_video_from_uri
 
 load_dotenv()
 
@@ -21,6 +22,11 @@ class ProcessVideoRequest(BaseModel):
     bucket_name: str = None  # Optional, will use GCP_BUCKET_NAME if not provided
     output_extension: str = "mp4"
     return_raw_output: bool = False
+
+class AddCaptionsRequest(BaseModel):
+    video_uri: str
+    bucket_name: str = None  # Optional, will use GCP_BUCKET_NAME if not provided
+    output_extension: str = "mp4"
 
 class GCSStorageManagerJWT:
     def __init__(self, bucket_name: str, token: str):
@@ -275,6 +281,70 @@ def process_video(request: ProcessVideoRequest, token: str = Depends(verify_bear
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 'error': 'Processing failed',
+                'details': str(e)
+            }
+        )
+
+@app.post("/add-captions")
+def add_captions(request: AddCaptionsRequest, token: str = Depends(verify_bearer_token)):
+    """
+    POST endpoint to add captions to video using speech-to-text
+    """
+    print(f"[API] Received caption request for URI: {request.video_uri}")
+    print(f"[API] Output extension: {request.output_extension}")
+    
+    # Use default bucket if none provided
+    bucket_name = request.bucket_name or os.getenv("GCP_BUCKET_NAME")
+    if not bucket_name:
+        print(f"[API] Error: No bucket name provided and GCP_BUCKET_NAME not set")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="bucket_name is required or set GCP_BUCKET_NAME environment variable"
+        )
+    
+    print(f"[API] Using bucket: {bucket_name}")
+    
+    # Generate GCP access token internally
+    try:
+        print(f"[API] Generating GCP access token...")
+        gcp_token = authenticate_gcp()
+        print(f"[API] GCP token generated successfully")
+    except Exception as e:
+        print(f"[API] Failed to generate GCP token: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                'error': 'GCP authentication failed',
+                'details': str(e)
+            }
+        )
+    
+    try:
+        # Add captions to video
+        print(f"[API] Calling add_captions_to_video_from_uri function...")
+        result = add_captions_to_video_from_uri(
+            video_uri=request.video_uri,
+            bucket_name=bucket_name,
+            token=gcp_token,
+            output_extension=request.output_extension
+        )
+        
+        print(f"[API] Caption addition completed successfully. Output URI: {result['result_uri']}")
+        
+        response = {
+            'success': True,
+            'output_uri': result["result_uri"],
+            'message': 'Captions added successfully'
+        }
+        
+        return response
+        
+    except Exception as e:
+        print(f"[API] Caption addition failed with error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                'error': 'Caption addition failed',
                 'details': str(e)
             }
         )
