@@ -25,8 +25,15 @@ class ProcessVideoRequest(BaseModel):
 class GCSStorageManagerJWT:
     def __init__(self, bucket_name: str, token: str):
         self.bucket_name = bucket_name
+        # Create credentials from access token
+        from google.auth.credentials import AnonymousCredentials
+        from google.oauth2.credentials import Credentials as OAuth2Credentials
+        
+        # Create OAuth2 credentials from access token
+        credentials = OAuth2Credentials(token=token)
+        
         self.client = storage.Client(
-            credentials=Credentials(token=token), 
+            credentials=credentials, 
             project=os.getenv("GCP_PROJECT_ID")
         )
         self.bucket = self.client.bucket(bucket_name)
